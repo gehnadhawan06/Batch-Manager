@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Check, X, Trash2, AlertTriangle, TrendingUp, Calendar as CalendarIcon, Filter } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -14,9 +14,14 @@ export function AttendanceApproval({ branch, section }: AttendanceApprovalProps)
     approveAttendance,
     denyAttendance,
     cancelAttendance,
+    fetchAttendanceRecords,
   } = useAppContext();
 
   const [selectedDate, setSelectedDate] = useState<string>('today');
+
+  useEffect(() => {
+    void fetchAttendanceRecords({ branch, section });
+  }, [branch, section, fetchAttendanceRecords]);
 
   // Get unique dates from attendance records
   const availableDates = useMemo(() => {
@@ -44,7 +49,9 @@ export function AttendanceApproval({ branch, section }: AttendanceApprovalProps)
     if (confirm) {
       filteredRecords
         .filter(r => r.status === 'pending')
-        .forEach(r => approveAttendance(r.id));
+        .forEach(r => {
+          void approveAttendance(r.id);
+        });
     }
   };
 
@@ -169,14 +176,18 @@ export function AttendanceApproval({ branch, section }: AttendanceApprovalProps)
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => approveAttendance(record.id)}
+                    onClick={() => {
+                      void approveAttendance(record.id);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg"
                   >
                     <Check className="w-4 h-4" />
                     <span>Approve</span>
                   </button>
                   <button
-                    onClick={() => denyAttendance(record.id)}
+                    onClick={() => {
+                      void denyAttendance(record.id);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all shadow-md hover:shadow-lg"
                   >
                     <X className="w-4 h-4" />
@@ -209,7 +220,9 @@ export function AttendanceApproval({ branch, section }: AttendanceApprovalProps)
                   <p className="text-sm text-gray-600">{record.date} at {record.time}</p>
                 </div>
                 <button
-                  onClick={() => cancelAttendance(record.id)}
+                  onClick={() => {
+                    void cancelAttendance(record.id);
+                  }}
                   className="flex items-center gap-2 px-3 py-1.5 border-2 border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />

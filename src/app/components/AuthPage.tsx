@@ -28,22 +28,22 @@ export function AuthPage({ onLogin }: AuthPageProps) {
   const [teacherPassword, setTeacherPassword] = useState('');
   const [teacherBranches, setTeacherBranches] = useState<string[]>([]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (role === 'teacher') {
-      const teacher = loginTeacher(loginEmail, loginPassword);
+      const teacher = await loginTeacher(loginEmail, loginPassword);
       if (teacher) {
         onLogin('teacher', teacher);
       } else {
-        alert('Invalid teacher credentials!\n\nDemo: praveen@igdtuw.ac.in / teacher123');
+        alert('Invalid teacher credentials');
       }
     } else {
-      const student = loginStudent(loginEmail, loginPassword);
+      const student = await loginStudent(loginEmail, loginPassword);
       if (student) {
         onLogin('student', student);
       } else {
-        alert('Invalid student credentials!\n\nDemo: 001btit24@igdtuw.ac.in / student123');
+        alert('Invalid student credentials');
       }
     }
   };

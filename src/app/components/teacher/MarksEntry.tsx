@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Save, Lock, Unlock, Download, Search, Filter } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -11,6 +11,7 @@ export function MarksEntry({ branch, section }: MarksEntryProps) {
   const {
     students,
     marks,
+    fetchMarks,
     updateMark,
     freezeAssessment,
     unfreezeAssessment,
@@ -20,6 +21,10 @@ export function MarksEntry({ branch, section }: MarksEntryProps) {
   const [tempValue, setTempValue] = useState<string>('');
   const [selectedAssessment, setSelectedAssessment] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    void fetchMarks({ branch, section });
+  }, [branch, section, fetchMarks]);
 
   const branchStudents = useMemo(() => {
     return students.filter(s => s.branch === branch && s.section === section);
@@ -47,7 +52,7 @@ export function MarksEntry({ branch, section }: MarksEntryProps) {
 
   const saveMarks = (id: number) => {
     const value = tempValue === '' ? null : Number(tempValue);
-    updateMark(id, value);
+    void updateMark(id, value);
     setEditingId(null);
   };
 
@@ -63,7 +68,7 @@ export function MarksEntry({ branch, section }: MarksEntryProps) {
     );
 
     if (confirm) {
-      freezeAssessment(assessment, branch, section);
+      void freezeAssessment(assessment, branch, section);
     }
   };
 
@@ -73,7 +78,7 @@ export function MarksEntry({ branch, section }: MarksEntryProps) {
     );
 
     if (confirm) {
-      unfreezeAssessment(assessment, branch, section);
+      void unfreezeAssessment(assessment, branch, section);
     }
   };
 

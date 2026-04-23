@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Plus, FileText, Clock, CheckCircle, Edit, Upload } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -12,6 +12,8 @@ export function AssignmentManager({ branch, section }: AssignmentManagerProps) {
     students,
     assignments,
     submissions,
+    fetchAssignments,
+    fetchSubmissions,
     createAssignment,
     markAsSubmittedManual,
   } = useAppContext();
@@ -28,11 +30,16 @@ export function AssignmentManager({ branch, section }: AssignmentManagerProps) {
     return students.filter(s => s.branch === branch && s.section === section);
   }, [students, branch, section]);
 
-  useState(() => {
+  useEffect(() => {
+    void fetchAssignments({ branch, section });
+    void fetchSubmissions({});
+  }, [branch, section, fetchAssignments, fetchSubmissions]);
+
+  useEffect(() => {
     if (branchAssignments.length > 0 && !selectedAssignment) {
       setSelectedAssignment(branchAssignments[0].id);
     }
-  });
+  }, [branchAssignments, selectedAssignment]);
 
   const handleCreateAssignment = () => {
     if (!newAssignment.title || !newAssignment.deadline) {
@@ -40,10 +47,13 @@ export function AssignmentManager({ branch, section }: AssignmentManagerProps) {
       return;
     }
 
-    createAssignment({
+    void createAssignment({
       ...newAssignment,
       branch,
       section,
+    }).then(() => {
+      void fetchAssignments({ branch, section });
+      void fetchSubmissions({});
     });
 
     setNewAssignment({ title: '', description: '', deadline: '', subject: '' });
@@ -213,7 +223,9 @@ export function AssignmentManager({ branch, section }: AssignmentManagerProps) {
                   <div className="flex items-center gap-2">
                     {submission?.status === 'not_submitted' ? (
                       <button
-                        onClick={() => markAsSubmittedManual(selectedAssignmentData.id, student.id)}
+                        onClick={() => {
+                          void markAsSubmittedManual(selectedAssignmentData.id, student.id);
+                        }}
                         className="flex items-center gap-2 px-4 py-2 border-2 border-emerald-600 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors text-sm font-semibold"
                       >
                         <Edit className="w-4 h-4" />

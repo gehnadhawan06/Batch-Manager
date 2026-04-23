@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Award, MessageSquare, Send, TrendingUp, Target, CheckCircle } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -9,10 +9,15 @@ interface MarksViewProps {
 }
 
 export function MarksView({ studentId, branch, section }: MarksViewProps) {
-  const { marks, queries, createQuery } = useAppContext();
+  const { marks, queries, fetchMarks, fetchQueries, createQuery } = useAppContext();
 
   const [showQueryForm, setShowQueryForm] = useState<number | null>(null);
   const [queryText, setQueryText] = useState('');
+
+  useEffect(() => {
+    void fetchMarks({ branch, section, studentId });
+    void fetchQueries({ studentId });
+  }, [branch, section, studentId, fetchMarks, fetchQueries]);
 
   const studentMarks = useMemo(() => {
     return marks.filter(m => m.studentId === studentId);
@@ -28,7 +33,7 @@ export function MarksView({ studentId, branch, section }: MarksViewProps) {
       return;
     }
 
-    createQuery({
+    void createQuery({
       studentId,
       markId,
       queryText,
