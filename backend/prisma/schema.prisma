@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum AttendanceStatus {
+  PENDING
+  APPROVED
+  DENIED
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  NOT_SUBMITTED
+  SUBMITTED_FILE
+  SUBMITTED_MANUAL
+}
+
+enum QueryStatus {
+  OPEN
+  CLOSED
+}
+
+model User {
+  id                Int                @id @default(autoincrement())
+  name              String
+  email             String             @unique
+  passwordHash      String             @map("password_hash")
+  role              UserRole
+  branch            String?
+  section           String?
+  batch             String?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  attendanceRecords AttendanceRecord[] @relation("StudentAttendance")
+  createdAssignments Assignment[]      @relation("TeacherAssignments")
+  submissions       Submission[]
+  marks             Mark[]
+  queries           Query[]
+  refreshTokens     RefreshToken[]
+
+  @@map("users")
+}
+
+model AttendanceRecord {
+  id         Int              @id @default(autoincrement())
+  studentId  Int              @map("student_id")
+  date       DateTime
+  status     AttendanceStatus
+  ipAddress  String           @map("ip")
+  deviceId   String           @map("device_id")
+  proxyFlag  Boolean          @default(false) @map("proxy_flag")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  student    User             @relation("StudentAttendance", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date])
+  @@index([studentId, date])
+  @@map("attendance_records")
+}
+
+model Assignment {
+  id          Int          @id @default(autoincrement())
+  title       String
+  description String
+  deadline    DateTime
+  branch      String
+  section     String
+  subject     String
+  createdBy   Int          @map("created_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  creator     User         @relation("TeacherAssignments", fields: [createdBy], references: [id], onDelete: Restrict)
+  submissions Submission[]
+
+  @@index([branch, section])
+  @@map("assignments")
+}
+
+model Submission {
+  id           Int              @id @default(autoincrement())
+  assignmentId Int              @map("assignment_id")
+  studentId    Int              @map("student_id")
+  status       SubmissionStatus @default(NOT_SUBMITTED)
+  fileUrl      String?          @map("file_url")
+  submittedAt  DateTime?        @map("submitted_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  assignment   Assignment       @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student      User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, studentId])
+  @@map("submissions")
+}
+
+model Mark {
+  id         Int       @id @default(autoincrement())
+  studentId  Int       @map("student_id")
+  assessment String
+  marks      Int?
+  total      Int
+  subject    String
+  branch     String
+  section    String
+  isFrozen   Boolean   @default(false) @map("is_frozen")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  student    User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  queries    Query[]
+
+  @@index([branch, section, assessment])
+  @@map("marks")
+}
+
+model Query {
+  id         Int         @id @default(autoincrement())
+  studentId  Int         @map("student_id")
+  markId     Int         @map("mark_id")
+  queryText  String      @map("query_text")
+  response   String?
+  status     QueryStatus @default(OPEN)
+  createdAt  DateTime    @default(now()) @map("created_at")
+  resolvedAt DateTime?   @map("resolved_at")
+  student    User        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  mark       Mark        @relation(fields: [markId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("queries")
+}
+
+model RefreshToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int       @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("refresh_tokens")
+}

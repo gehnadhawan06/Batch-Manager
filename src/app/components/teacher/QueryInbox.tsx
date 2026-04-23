@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { MessageSquare, Send, CheckCircle, Clock } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -8,8 +8,13 @@ interface QueryInboxProps {
 }
 
 export function QueryInbox({ branch, section }: QueryInboxProps) {
-  const { students, marks, queries, respondToQuery } = useAppContext();
+  const { students, marks, queries, fetchMarks, fetchQueries, respondToQuery } = useAppContext();
   const [responseText, setResponseText] = useState<{ [key: number]: string }>({});
+
+  useEffect(() => {
+    void fetchMarks({ branch, section });
+    void fetchQueries({});
+  }, [branch, section, fetchMarks, fetchQueries]);
 
   const branchQueries = useMemo(() => {
     const branchStudentIds = students
@@ -26,7 +31,7 @@ export function QueryInbox({ branch, section }: QueryInboxProps) {
       return;
     }
 
-    respondToQuery(queryId, response);
+    void respondToQuery(queryId, response);
     setResponseText({ ...responseText, [queryId]: '' });
   };
 

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Upload, FileText, Clock, CheckCircle, XCircle, Calendar, AlertTriangle } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -9,7 +9,12 @@ interface AssignmentSubmitProps {
 }
 
 export function AssignmentSubmit({ studentId, branch, section }: AssignmentSubmitProps) {
-  const { assignments, submissions, submitAssignment } = useAppContext();
+  const { assignments, submissions, submitAssignment, fetchAssignments, fetchSubmissions } = useAppContext();
+
+  useEffect(() => {
+    void fetchAssignments({ branch, section });
+    void fetchSubmissions({ studentId });
+  }, [branch, section, studentId, fetchAssignments, fetchSubmissions]);
 
   const studentAssignments = useMemo(() => {
     return assignments.filter(a => a.branch === branch && a.section === section);
@@ -20,7 +25,7 @@ export function AssignmentSubmit({ studentId, branch, section }: AssignmentSubmi
   }, [submissions, studentId]);
 
   const handleFileUpload = (assignmentId: number, file: File) => {
-    submitAssignment(assignmentId, studentId, file.name);
+    void submitAssignment(assignmentId, studentId, file.name);
   };
 
   const getTimeRemaining = (deadline: string) => {

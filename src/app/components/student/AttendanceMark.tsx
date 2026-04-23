@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { CheckCircle, Clock, XCircle, AlertCircle, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -9,8 +9,12 @@ interface AttendanceMarkProps {
 }
 
 export function AttendanceMark({ studentId, branch, section }: AttendanceMarkProps) {
-  const { attendanceRecords, markAttendance } = useAppContext();
+  const { attendanceRecords, markAttendance, fetchAttendanceRecords } = useAppContext();
   const [isMarking, setIsMarking] = useState(false);
+
+  useEffect(() => {
+    void fetchAttendanceRecords({ studentId, branch, section });
+  }, [studentId, branch, section, fetchAttendanceRecords]);
 
   const records = useMemo(() => {
     return attendanceRecords.filter(r => r.studentId === studentId);
@@ -22,8 +26,9 @@ export function AttendanceMark({ studentId, branch, section }: AttendanceMarkPro
   const handleMarkPresent = () => {
     setIsMarking(true);
     setTimeout(() => {
-      markAttendance(studentId, branch, section);
-      setIsMarking(false);
+      void markAttendance(studentId, branch, section).finally(() => {
+        setIsMarking(false);
+      });
     }, 1000);
   };
 

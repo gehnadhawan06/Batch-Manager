@@ -1,4 +1,25 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import {
+  approveAttendance as approveAttendanceApi,
+  cancelAttendance as cancelAttendanceApi,
+  denyAttendance as denyAttendanceApi,
+  getAttendanceRecords,
+  markAttendance as markAttendanceApi,
+} from '../api/attendance';
+import {
+  createAssignment as createAssignmentApi,
+  getAssignments,
+  submitAssignment as submitAssignmentApi,
+} from '../api/assignments';
+import { login as loginApi } from '../api/auth';
+import {
+  freezeAssessment as freezeAssessmentApi,
+  getMarks,
+  unfreezeAssessment as unfreezeAssessmentApi,
+  updateMark as updateMarkApi,
+} from '../api/marks';
+import { createQuery as createQueryApi, getQueries, respondToQuery as respondToQueryApi } from '../api/queries';
+import { getSubmissions, markSubmissionManual } from '../api/submissions';
 
 export interface Student {
   id: number;
@@ -45,6 +66,7 @@ export interface Assignment {
 }
 
 export interface Submission {
+  id?: number;
   assignmentId: number;
   studentId: number;
   status: 'not_submitted' | 'submitted_file' | 'submitted_manual';
@@ -84,20 +106,25 @@ interface AppContextType {
   queries: Query[];
   registerStudent: (student: Omit<Student, 'id'>) => void;
   registerTeacher: (teacher: Omit<Teacher, 'id'>) => void;
-  loginStudent: (email: string, password: string) => Student | null;
-  loginTeacher: (email: string, password: string) => Teacher | null;
-  markAttendance: (studentId: number, branch: string, section: string) => void;
-  approveAttendance: (recordId: number) => void;
-  denyAttendance: (recordId: number) => void;
-  cancelAttendance: (recordId: number) => void;
-  createAssignment: (assignment: Omit<Assignment, 'id' | 'createdAt'>) => void;
-  submitAssignment: (assignmentId: number, studentId: number, fileName: string) => void;
-  markAsSubmittedManual: (assignmentId: number, studentId: number) => void;
-  updateMark: (markId: number, marks: number | null) => void;
-  freezeAssessment: (assessment: string, branch: string, section: string) => void;
-  unfreezeAssessment: (assessment: string, branch: string, section: string) => void;
-  createQuery: (query: Omit<Query, 'id' | 'createdAt'>) => void;
-  respondToQuery: (queryId: number, response: string) => void;
+  loginStudent: (email: string, password: string) => Promise<Student | null>;
+  loginTeacher: (email: string, password: string) => Promise<Teacher | null>;
+  markAttendance: (studentId: number, branch: string, section: string) => Promise<void>;
+  approveAttendance: (recordId: number) => Promise<void>;
+  denyAttendance: (recordId: number) => Promise<void>;
+  cancelAttendance: (recordId: number) => Promise<void>;
+  fetchAttendanceRecords: (filters: { branch?: string; section?: string; studentId?: number }) => Promise<void>;
+  fetchAssignments: (filters: { branch?: string; section?: string }) => Promise<void>;
+  fetchSubmissions: (filters: { assignmentId?: number; studentId?: number }) => Promise<void>;
+  fetchMarks: (filters: { branch?: string; section?: string; studentId?: number }) => Promise<void>;
+  fetchQueries: (filters: { studentId?: number; markId?: number }) => Promise<void>;
+  createAssignment: (assignment: Omit<Assignment, 'id' | 'createdAt'>) => Promise<void>;
+  submitAssignment: (assignmentId: number, studentId: number, fileName: string) => Promise<void>;
+  markAsSubmittedManual: (assignmentId: number, studentId: number) => Promise<void>;
+  updateMark: (markId: number, marks: number | null) => Promise<void>;
+  freezeAssessment: (assessment: string, branch: string, section: string) => Promise<void>;
+  unfreezeAssessment: (assessment: string, branch: string, section: string) => Promise<void>;
+  createQuery: (query: Omit<Query, 'id' | 'createdAt'>) => Promise<void>;
+  respondToQuery: (queryId: number, response: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -223,150 +250,258 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTeachers([...teachers, newTeacher]);
   };
 
-  const loginStudent = (email: string, password: string): Student | null => {
-    const student = students.find(s => s.email === email && s.password === password);
-    return student || null;
-  };
+  const loginStudent = async (email: string, password: string): Promise<Student | null> => {
+    try {
+      const user = await loginApi(email, password);
+      if (user.role !== 'STUDENT') {
+        return null;
+      }
 
-  const loginTeacher = (email: string, password: string): Teacher | null => {
-    const teacher = teachers.find(t => t.email === email && t.password === password);
-    return teacher || null;
-  };
-
-  const markAttendance = (studentId: number, branch: string, section: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    const existingRecord = attendanceRecords.find(
-      r => r.studentId === studentId && r.date === today
-    );
-
-    if (existingRecord) {
-      alert('You have already marked attendance today!');
-      return;
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        password: '',
+        rollNumber: '',
+        branch: user.branch ?? 'IT',
+        section: user.section ?? '1',
+        batch: user.batch ?? '2024',
+      };
+    } catch {
+      return null;
     }
-
-    // Check for proxy - same IP/device at similar time
-    const recentRecords = attendanceRecords.filter(r => r.date === today);
-    const ipAddress = `192.168.1.${Math.floor(Math.random() * 255)}`;
-    const deviceId = `device-${Math.random().toString(36).substring(7)}`;
-
-    const proxyWarning = recentRecords.some(
-      r => (r.ipAddress === ipAddress || r.deviceId === deviceId) && r.studentId !== studentId
-    );
-
-    const newRecord: AttendanceRecord = {
-      id: attendanceRecords.length > 0 ? Math.max(...attendanceRecords.map(r => r.id)) + 1 : 1,
-      studentId,
-      date: today,
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      status: 'pending',
-      ipAddress,
-      deviceId,
-      proxyWarning,
-      branch,
-      section,
-    };
-
-    setAttendanceRecords([newRecord, ...attendanceRecords]);
   };
 
-  const approveAttendance = (recordId: number) => {
-    setAttendanceRecords(attendanceRecords.map(r =>
-      r.id === recordId ? { ...r, status: 'approved' as const } : r
-    ));
-  };
+  const loginTeacher = async (email: string, password: string): Promise<Teacher | null> => {
+    try {
+      const user = await loginApi(email, password);
+      if (user.role !== 'TEACHER' && user.role !== 'ADMIN') {
+        return null;
+      }
 
-  const denyAttendance = (recordId: number) => {
-    setAttendanceRecords(attendanceRecords.map(r =>
-      r.id === recordId ? { ...r, status: 'denied' as const } : r
-    ));
-  };
-
-  const cancelAttendance = (recordId: number) => {
-    setAttendanceRecords(attendanceRecords.map(r =>
-      r.id === recordId ? { ...r, status: 'cancelled' as const } : r
-    ));
-  };
-
-  const createAssignment = (assignment: Omit<Assignment, 'id' | 'createdAt'>) => {
-    const newAssignment: Assignment = {
-      ...assignment,
-      id: assignments.length > 0 ? Math.max(...assignments.map(a => a.id)) + 1 : 1,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setAssignments([...assignments, newAssignment]);
-
-    // Create submissions for all students in the branch
-    const branchStudents = students.filter(
-      s => s.branch === assignment.branch && s.section === assignment.section
-    );
-    const newSubmissions = branchStudents.map(student => ({
-      assignmentId: newAssignment.id,
-      studentId: student.id,
-      status: 'not_submitted' as const,
-    }));
-    setSubmissions([...submissions, ...newSubmissions]);
-  };
-
-  const submitAssignment = (assignmentId: number, studentId: number, fileName: string) => {
-    const assignment = assignments.find(a => a.id === assignmentId);
-    if (!assignment) return;
-
-    const now = new Date();
-    const deadline = new Date(assignment.deadline);
-
-    if (now > deadline) {
-      alert('Cannot submit after deadline!');
-      return;
+      const branchLabel = user.branch && user.section ? `${user.branch}-${user.section}` : 'IT-1';
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        password: '',
+        branches: [branchLabel],
+        department: 'Information Technology',
+      };
+    } catch {
+      return null;
     }
-
-    setSubmissions(submissions.map(s =>
-      s.assignmentId === assignmentId && s.studentId === studentId
-        ? { ...s, status: 'submitted_file' as const, fileName, submittedAt: now.toISOString() }
-        : s
-    ));
   };
 
-  const markAsSubmittedManual = (assignmentId: number, studentId: number) => {
-    setSubmissions(submissions.map(s =>
-      s.assignmentId === assignmentId && s.studentId === studentId
-        ? { ...s, status: 'submitted_manual' as const, submittedAt: new Date().toISOString() }
-        : s
-    ));
+  const fetchAttendanceRecords = useCallback(async (filters: { branch?: string; section?: string; studentId?: number }) => {
+    try {
+      const records = await getAttendanceRecords(filters);
+      setAttendanceRecords(records);
+    } catch (error) {
+      console.error('Failed to load attendance records', error);
+    }
+  }, []);
+
+  const markAttendance = async (studentId: number, branch: string, section: string) => {
+    try {
+      const record = await markAttendanceApi({
+        studentId,
+        ipAddress: `192.168.1.${Math.floor(Math.random() * 255)}`,
+        deviceId: `device-${Math.random().toString(36).substring(7)}`,
+      });
+      setAttendanceRecords(prev => [record, ...prev.filter(r => r.id !== record.id)]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to mark attendance';
+      alert(message);
+    }
   };
 
-  const updateMark = (markId: number, newMarks: number | null) => {
-    setMarks(marks.map(m => m.id === markId ? { ...m, marks: newMarks } : m));
+  const approveAttendance = async (recordId: number) => {
+    try {
+      const updated = await approveAttendanceApi(recordId);
+      setAttendanceRecords(prev => prev.map(r => (r.id === recordId ? updated : r)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to approve attendance';
+      alert(message);
+    }
   };
 
-  const freezeAssessment = (assessment: string, branch: string, section: string) => {
-    setMarks(marks.map(m =>
-      m.assessment === assessment && m.branch === branch && m.section === section
-        ? { ...m, isFrozen: true }
-        : m
-    ));
+  const denyAttendance = async (recordId: number) => {
+    try {
+      const updated = await denyAttendanceApi(recordId);
+      setAttendanceRecords(prev => prev.map(r => (r.id === recordId ? updated : r)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to deny attendance';
+      alert(message);
+    }
   };
 
-  const unfreezeAssessment = (assessment: string, branch: string, section: string) => {
-    setMarks(marks.map(m =>
-      m.assessment === assessment && m.branch === branch && m.section === section
-        ? { ...m, isFrozen: false }
-        : m
-    ));
+  const cancelAttendance = async (recordId: number) => {
+    try {
+      const updated = await cancelAttendanceApi(recordId);
+      setAttendanceRecords(prev => prev.map(r => (r.id === recordId ? updated : r)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to cancel attendance';
+      alert(message);
+    }
   };
 
-  const createQuery = (query: Omit<Query, 'id' | 'createdAt'>) => {
-    const newQuery: Query = {
-      ...query,
-      id: queries.length > 0 ? Math.max(...queries.map(q => q.id)) + 1 : 1,
-      createdAt: new Date().toISOString(),
-    };
-    setQueries([...queries, newQuery]);
+  const fetchAssignments = useCallback(async (filters: { branch?: string; section?: string }) => {
+    try {
+      const data = await getAssignments(filters);
+      setAssignments(data);
+    } catch (error) {
+      console.error('Failed to load assignments', error);
+    }
+  }, []);
+
+  const fetchSubmissions = useCallback(async (filters: { assignmentId?: number; studentId?: number }) => {
+    try {
+      const data = await getSubmissions(filters);
+      setSubmissions(data);
+    } catch (error) {
+      console.error('Failed to load submissions', error);
+    }
+  }, []);
+
+  const createAssignment = async (assignment: Omit<Assignment, 'id' | 'createdAt'>) => {
+    try {
+      const created = await createAssignmentApi(assignment);
+      setAssignments(prev => [created, ...prev.filter(a => a.id !== created.id)]);
+      await fetchSubmissions({});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create assignment';
+      alert(message);
+    }
   };
 
-  const respondToQuery = (queryId: number, response: string) => {
-    setQueries(queries.map(q =>
-      q.id === queryId ? { ...q, response, status: 'closed' as const } : q
-    ));
+  const submitAssignment = async (assignmentId: number, studentId: number, fileName: string) => {
+    try {
+      const assignment = assignments.find(a => a.id === assignmentId);
+      if (assignment && new Date() > new Date(assignment.deadline)) {
+        alert('Cannot submit after deadline!');
+        return;
+      }
+
+      await submitAssignmentApi(assignmentId, { studentId, fileUrl: fileName });
+      await fetchSubmissions({ studentId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to submit assignment';
+      alert(message);
+    }
+  };
+
+  const markAsSubmittedManual = async (assignmentId: number, studentId: number) => {
+    try {
+      const existing = submissions.find(s => s.assignmentId === assignmentId && s.studentId === studentId);
+      if (!existing) {
+        alert('Submission record not found');
+        return;
+      }
+      if (!existing.id) {
+        alert('Submission id missing');
+        return;
+      }
+      await markSubmissionManual(existing.id);
+      await fetchSubmissions({ assignmentId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to mark manual submission';
+      alert(message);
+    }
+  };
+
+  const fetchMarks = useCallback(async (filters: { branch?: string; section?: string; studentId?: number }) => {
+    try {
+      const data = await getMarks(filters);
+      setMarks(
+        data.map(mark => ({
+          ...mark,
+          totalMarks: mark.total,
+        }))
+      );
+    } catch (error) {
+      console.error('Failed to load marks', error);
+    }
+  }, []);
+
+  const fetchQueries = useCallback(async (filters: { studentId?: number; markId?: number }) => {
+    try {
+      const data = await getQueries(filters);
+      setQueries(
+        data.map(query => ({
+          ...query,
+          response: query.response ?? undefined,
+        }))
+      );
+    } catch (error) {
+      console.error('Failed to load queries', error);
+    }
+  }, []);
+
+  const updateMark = async (markId: number, newMarks: number | null) => {
+    try {
+      const updated = await updateMarkApi(markId, newMarks);
+      setMarks(prev =>
+        prev.map(mark =>
+          mark.id === markId
+            ? { ...mark, marks: updated.marks, totalMarks: updated.total, isFrozen: updated.isFrozen }
+            : mark
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update mark';
+      alert(message);
+    }
+  };
+
+  const freezeAssessment = async (assessment: string, branch: string, section: string) => {
+    try {
+      await freezeAssessmentApi(assessment, branch, section);
+      await fetchMarks({ branch, section });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to freeze assessment';
+      alert(message);
+    }
+  };
+
+  const unfreezeAssessment = async (assessment: string, branch: string, section: string) => {
+    try {
+      await unfreezeAssessmentApi(assessment, branch, section);
+      await fetchMarks({ branch, section });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to unfreeze assessment';
+      alert(message);
+    }
+  };
+
+  const createQuery = async (query: Omit<Query, 'id' | 'createdAt'>) => {
+    try {
+      const created = await createQueryApi({
+        studentId: query.studentId,
+        markId: query.markId,
+        queryText: query.queryText,
+      });
+      setQueries(prev => [{ ...created, response: created.response ?? undefined }, ...prev.filter(q => q.id !== created.id)]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create query';
+      alert(message);
+    }
+  };
+
+  const respondToQuery = async (queryId: number, response: string) => {
+    try {
+      const updated = await respondToQueryApi(queryId, response);
+      setQueries(prev =>
+        prev.map(query =>
+          query.id === queryId
+            ? { ...updated, response: updated.response ?? undefined }
+            : query
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to respond to query';
+      alert(message);
+    }
   };
 
   return (
@@ -387,6 +522,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         approveAttendance,
         denyAttendance,
         cancelAttendance,
+        fetchAttendanceRecords,
+        fetchAssignments,
+        fetchSubmissions,
+        fetchMarks,
+        fetchQueries,
         createAssignment,
         submitAssignment,
         markAsSubmittedManual,
