@@ -16,6 +16,12 @@ const baseUserSchema = z.object({
 
 const router = Router();
 
+const listUsersQuerySchema = z.object({
+  branch: z.string().optional(),
+  section: z.string().optional(),
+  batch: z.string().optional(),
+});
+
 router.get("/me", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
   if (!user) {
@@ -66,6 +72,57 @@ router.post("/teachers", requireAuth, requireRoles("ADMIN"), async (req, res) =>
   });
 
   return res.status(201).json({ id: user.id, role: user.role, email: user.email });
+});
+
+router.get("/students", requireAuth, requireRoles("ADMIN", "TEACHER"), async (req, res) => {
+  const parsed = listUsersQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid query params", errors: parsed.error.flatten() });
+  }
+
+  const { branch, section, batch } = parsed.data;
+  const users = await prisma.user.findMany({
+    where: {
+      role: UserRole.STUDENT,
+      branch: branch ?? undefined,
+      section: section ?? undefined,
+      batch: batch ?? undefined,
+    },
+    orderBy: [{ branch: "asc" }, { section: "asc" }, { name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      branch: true,
+      section: true,
+      batch: true,
+      createdAt: true,
+    },
+  });
+
+  return res.json(users);
+});
+
+router.get("/teachers", requireAuth, requireRoles("ADMIN", "TEACHER"), async (_req, res) => {
+  const users = await prisma.user.findMany({
+    where: {
+      role: { in: [UserRole.TEACHER, UserRole.ADMIN] },
+    },
+    orderBy: [{ name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      branch: true,
+      section: true,
+      batch: true,
+      createdAt: true,
+    },
+  });
+
+  return res.json(users);
 });
 
 export const usersRouter = router;

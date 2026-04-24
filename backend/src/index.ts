@@ -2,10 +2,11 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
-import morgan from "morgan";
 import { env } from "./config/env";
+import { httpLogger, logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { errorHandler } from "./middleware/errorHandler";
+import { apiRateLimiter, authRateLimiter } from "./middleware/rateLimit";
 import { assignmentsRouter } from "./modules/assignments/assignments.routes";
 import { attendanceRouter } from "./modules/attendance/attendance.routes";
 import { authRouter } from "./modules/auth/auth.routes";
@@ -18,14 +19,15 @@ const app = express();
 
 app.use(helmet());
 app.use(cors());
-app.use(morgan("dev"));
+app.use(httpLogger);
 app.use(express.json());
+app.use(apiRateLimiter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "batch-manager-backend" });
 });
 
-app.use("/auth", authRouter);
+app.use("/auth", authRateLimiter, authRouter);
 app.use("/", usersRouter);
 app.use("/attendance", attendanceRouter);
 app.use("/assignments", assignmentsRouter);
@@ -36,7 +38,7 @@ app.use("/queries", queriesRouter);
 app.use(errorHandler);
 
 app.listen(env.PORT, () => {
-  console.log(`Backend running on http://localhost:${env.PORT}`);
+  logger.info({ port: env.PORT }, "Backend server started");
 });
 
 process.on("SIGINT", async () => {

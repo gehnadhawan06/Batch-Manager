@@ -20,6 +20,15 @@ interface AccessTokenResponse {
   accessToken: string;
 }
 
+interface RegisterStudentPayload {
+  name: string;
+  email: string;
+  password: string;
+  branch?: string;
+  section?: string;
+  batch?: string;
+}
+
 const REFRESH_TOKEN_KEY = "batch_manager_refresh_token";
 
 export function clearSession() {
@@ -36,6 +45,13 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   setAccessToken(data.accessToken);
   localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
   return data.user;
+}
+
+export async function registerStudentAccount(payload: RegisterStudentPayload): Promise<AuthUser> {
+  return apiFetch<AuthUser>("/auth/register/student", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function refreshAccessToken(): Promise<boolean> {

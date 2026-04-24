@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import {
   approveAttendance as approveAttendanceApi,
   cancelAttendance as cancelAttendanceApi,
@@ -11,7 +11,7 @@ import {
   getAssignments,
   submitAssignment as submitAssignmentApi,
 } from '../api/assignments';
-import { login as loginApi } from '../api/auth';
+import { login as loginApi, registerStudentAccount } from '../api/auth';
 import {
   freezeAssessment as freezeAssessmentApi,
   getMarks,
@@ -20,6 +20,7 @@ import {
 } from '../api/marks';
 import { createQuery as createQueryApi, getQueries, respondToQuery as respondToQueryApi } from '../api/queries';
 import { getSubmissions, markSubmissionManual } from '../api/submissions';
+import { listStudents, listTeachers } from '../api/users';
 
 export interface Student {
   id: number;
@@ -104,8 +105,9 @@ interface AppContextType {
   submissions: Submission[];
   marks: Mark[];
   queries: Query[];
-  registerStudent: (student: Omit<Student, 'id'>) => void;
-  registerTeacher: (teacher: Omit<Teacher, 'id'>) => void;
+  fetchUsers: () => Promise<void>;
+  registerStudent: (student: Omit<Student, 'id'>) => Promise<void>;
+  registerTeacher: (teacher: Omit<Teacher, 'id'>) => Promise<void>;
   loginStudent: (email: string, password: string) => Promise<Student | null>;
   loginTeacher: (email: string, password: string) => Promise<Teacher | null>;
   markAttendance: (studentId: number, branch: string, section: string) => Promise<void>;
@@ -138,116 +140,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const [queries, setQueries] = useState<Query[]>([]);
 
-  // Load data from localStorage on mount
-  useEffect(() => {
-    const savedData = localStorage.getItem('batchManagerData');
-    if (savedData) {
-      const data = JSON.parse(savedData);
-      setStudents(data.students || []);
-      setTeachers(data.teachers || []);
-      setAttendanceRecords(data.attendanceRecords || []);
-      setAssignments(data.assignments || []);
-      setSubmissions(data.submissions || []);
-      setMarks(data.marks || []);
-      setQueries(data.queries || []);
-    } else {
-      // Initialize with default data
-      initializeDefaultData();
+  const extractRollNumber = (email: string) => {
+    const prefix = email.split('@')[0] ?? '';
+    const digits = prefix.match(/\d+/)?.[0];
+    return digits ?? '';
+  };
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const [studentUsers, teacherUsers] = await Promise.all([listStudents(), listTeachers()]);
+      setStudents(
+        studentUsers.map(user => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: '',
+          rollNumber: extractRollNumber(user.email),
+          branch: user.branch ?? 'IT',
+          section: user.section ?? '1',
+          batch: user.batch ?? '2024',
+        }))
+      );
+      setTeachers(
+        teacherUsers.map(user => {
+          const branchLabel = user.branch && user.section ? `${user.branch}-${user.section}` : 'IT-1';
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            password: '',
+            branches: [branchLabel],
+            department: 'Information Technology',
+          };
+        })
+      );
+    } catch (error) {
+      console.error('Failed to load users', error);
     }
   }, []);
 
-  // Save data to localStorage whenever it changes
   useEffect(() => {
-    const data = {
-      students,
-      teachers,
-      attendanceRecords,
-      assignments,
-      submissions,
-      marks,
-      queries,
-    };
-    localStorage.setItem('batchManagerData', JSON.stringify(data));
-  }, [students, teachers, attendanceRecords, assignments, submissions, marks, queries]);
+    void fetchUsers();
+  }, [fetchUsers]);
 
-  const initializeDefaultData = () => {
-    // Generate students for IT1 and IT2
-    const generatedStudents = generateStudents();
-    setStudents(generatedStudents);
-
-    // Add default teacher
-    const defaultTeacher: Teacher = {
-      id: 1,
-      name: 'Prof. Praveen',
-      email: 'praveen@igdtuw.ac.in',
-      password: 'teacher123',
-      branches: ['IT-1', 'IT-2'],
-      department: 'Information Technology',
-    };
-    setTeachers([defaultTeacher]);
-
-    // Generate attendance records for last 15 classes
-    const generatedAttendance = generateAttendanceHistory(generatedStudents);
-    setAttendanceRecords(generatedAttendance);
-
-    // Generate initial assignments
-    const initialAssignments = generateInitialAssignments();
-    setAssignments(initialAssignments);
-
-    // Generate initial submissions
-    const initialSubmissions = generateInitialSubmissions(generatedStudents, initialAssignments);
-    setSubmissions(initialSubmissions);
-
-    // Generate initial marks
-    const initialMarks = generateInitialMarks(generatedStudents);
-    setMarks(initialMarks);
-  };
-
-  const registerStudent = (student: Omit<Student, 'id'>) => {
-    const newStudent: Student = {
-      ...student,
-      id: students.length > 0 ? Math.max(...students.map(s => s.id)) + 1 : 1,
-    };
-    setStudents([...students, newStudent]);
-
-    // Create initial submissions for existing assignments
-    const studentAssignments = assignments.filter(
-      a => a.branch === student.branch && a.section === student.section
-    );
-    const newSubmissions = studentAssignments.map(assignment => ({
-      assignmentId: assignment.id,
-      studentId: newStudent.id,
-      status: 'not_submitted' as const,
-    }));
-    setSubmissions([...submissions, ...newSubmissions]);
-
-    // Create initial marks
-    const assessments = [
-      { name: 'Mid-term Exam', total: 100, subject: 'Data Structures', frozen: false },
-      { name: 'Quiz 1', total: 20, subject: 'Data Structures', frozen: false },
-      { name: 'Assignment 1', total: 50, subject: 'Web Development', frozen: false },
-    ];
-
-    const newMarks = assessments.map((assessment, index) => ({
-      id: marks.length > 0 ? Math.max(...marks.map(m => m.id)) + index + 1 : index + 1,
-      studentId: newStudent.id,
-      assessment: assessment.name,
-      marks: null,
-      totalMarks: assessment.total,
+  const registerStudent = async (student: Omit<Student, 'id'>) => {
+    await registerStudentAccount({
+      name: student.name,
+      email: student.email,
+      password: student.password,
       branch: student.branch,
       section: student.section,
-      subject: assessment.subject,
-      isFrozen: assessment.frozen,
-    }));
-    setMarks([...marks, ...newMarks]);
+      batch: student.batch,
+    });
+    await fetchUsers();
   };
 
-  const registerTeacher = (teacher: Omit<Teacher, 'id'>) => {
-    const newTeacher: Teacher = {
-      ...teacher,
-      id: teachers.length > 0 ? Math.max(...teachers.map(t => t.id)) + 1 : 1,
-    };
-    setTeachers([...teachers, newTeacher]);
+  const registerTeacher = async (_teacher: Omit<Teacher, 'id'>) => {
+    throw new Error('Teacher signup is disabled. Ask an admin to create teacher accounts.');
   };
 
   const loginStudent = async (email: string, password: string): Promise<Student | null> => {
@@ -262,7 +211,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name: user.name,
         email: user.email,
         password: '',
-        rollNumber: '',
+        rollNumber: extractRollNumber(user.email),
         branch: user.branch ?? 'IT',
         section: user.section ?? '1',
         batch: user.batch ?? '2024',
@@ -514,6 +463,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         submissions,
         marks,
         queries,
+        fetchUsers,
         registerStudent,
         registerTeacher,
         loginStudent,
@@ -548,203 +498,4 @@ export function useAppContext() {
     throw new Error('useAppContext must be used within AppProvider');
   }
   return context;
-}
-
-// Helper functions to generate initial data
-function generateStudents(): Student[] {
-  const students: Student[] = [];
-  const firstNames = [
-    'Aadhya', 'Aanya', 'Ananya', 'Anushka', 'Diya', 'Isha', 'Jiya', 'Kavya', 'Khushi', 'Myra',
-    'Navya', 'Pari', 'Prisha', 'Saanvi', 'Sara', 'Shanaya', 'Siya', 'Tara', 'Vanya', 'Zara',
-    'Aditi', 'Aisha', 'Anjali', 'Avni', 'Divya', 'Kiara', 'Mira', 'Neha', 'Riya', 'Shreya',
-    'Simran', 'Tanvi', 'Trisha', 'Vidya', 'Zoya', 'Anika', 'Ishita', 'Mehak', 'Naina', 'Palak',
-  ];
-
-  const lastNames = [
-    'Sharma', 'Verma', 'Kumar', 'Singh', 'Gupta', 'Patel', 'Reddy', 'Rao', 'Desai', 'Joshi',
-    'Agarwal', 'Mehta', 'Chopra', 'Malhotra', 'Kapoor', 'Bhat', 'Nair', 'Iyer', 'Menon', 'Pillai',
-  ];
-
-  let id = 1;
-
-  // IT-1: 60 students
-  for (let i = 1; i <= 60; i++) {
-    const rollNumber = String(i).padStart(3, '0');
-    const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
-    const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
-    students.push({
-      id: id++,
-      name: `${firstName} ${lastName}`,
-      email: `${rollNumber}btit24@igdtuw.ac.in`,
-      password: 'student123',
-      rollNumber,
-      branch: 'IT',
-      section: '1',
-      batch: '2024',
-    });
-  }
-
-  // IT-2: 55 students
-  for (let i = 1; i <= 55; i++) {
-    const rollNumber = String(i).padStart(3, '0');
-    const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
-    const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
-    students.push({
-      id: id++,
-      name: `${firstName} ${lastName}`,
-      email: `${rollNumber}btit24sec2@igdtuw.ac.in`,
-      password: 'student123',
-      rollNumber,
-      branch: 'IT',
-      section: '2',
-      batch: '2024',
-    });
-  }
-
-  return students;
-}
-
-function generateAttendanceHistory(students: Student[]): AttendanceRecord[] {
-  const records: AttendanceRecord[] = [];
-  let id = 1;
-
-  // Generate attendance for last 15 class days
-  for (let dayOffset = 15; dayOffset >= 0; dayOffset--) {
-    const date = new Date();
-    date.setDate(date.getDate() - dayOffset);
-    const dateStr = date.toISOString().split('T')[0];
-
-    students.forEach(student => {
-      // 80% attendance rate
-      if (Math.random() < 0.8) {
-        const hour = 9 + Math.floor(Math.random() * 2);
-        const minute = Math.floor(Math.random() * 60);
-
-        records.push({
-          id: id++,
-          studentId: student.id,
-          date: dateStr,
-          time: `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
-          status: dayOffset === 0 ? 'pending' : 'approved',
-          ipAddress: `192.168.1.${Math.floor(Math.random() * 255)}`,
-          deviceId: `device-${Math.random().toString(36).substring(7)}`,
-          proxyWarning: Math.random() < 0.05,
-          branch: student.branch,
-          section: student.section,
-        });
-      }
-    });
-  }
-
-  return records;
-}
-
-function generateInitialAssignments(): Assignment[] {
-  return [
-    {
-      id: 1,
-      title: 'Binary Search Tree Implementation',
-      description: 'Implement a balanced BST with insert, delete, and search operations.',
-      deadline: '2026-04-30T23:59',
-      createdAt: '2026-04-15',
-      branch: 'IT',
-      section: '1',
-      subject: 'Data Structures',
-    },
-    {
-      id: 2,
-      title: 'Full Stack CRUD Application',
-      description: 'Build a complete CRUD application using React and Node.js.',
-      deadline: '2026-05-05T23:59',
-      createdAt: '2026-04-18',
-      branch: 'IT',
-      section: '1',
-      subject: 'Web Development',
-    },
-    {
-      id: 3,
-      title: 'Binary Search Tree Implementation',
-      description: 'Implement a balanced BST with insert, delete, and search operations.',
-      deadline: '2026-04-30T23:59',
-      createdAt: '2026-04-15',
-      branch: 'IT',
-      section: '2',
-      subject: 'Data Structures',
-    },
-    {
-      id: 4,
-      title: 'Full Stack CRUD Application',
-      description: 'Build a complete CRUD application using React and Node.js.',
-      deadline: '2026-05-05T23:59',
-      createdAt: '2026-04-18',
-      branch: 'IT',
-      section: '2',
-      subject: 'Web Development',
-    },
-  ];
-}
-
-function generateInitialSubmissions(students: Student[], assignments: Assignment[]): Submission[] {
-  const submissions: Submission[] = [];
-
-  students.forEach(student => {
-    const studentAssignments = assignments.filter(
-      a => a.branch === student.branch && a.section === student.section
-    );
-
-    studentAssignments.forEach(assignment => {
-      const random = Math.random();
-      if (random < 0.5) {
-        submissions.push({
-          assignmentId: assignment.id,
-          studentId: student.id,
-          status: 'submitted_file',
-          fileName: `assignment_${student.rollNumber}.pdf`,
-          submittedAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
-        });
-      } else {
-        submissions.push({
-          assignmentId: assignment.id,
-          studentId: student.id,
-          status: 'not_submitted',
-        });
-      }
-    });
-  });
-
-  return submissions;
-}
-
-function generateInitialMarks(students: Student[]): Mark[] {
-  const marks: Mark[] = [];
-  let id = 1;
-
-  const assessments = [
-    { name: 'Mid-term Exam', total: 100, subject: 'Data Structures', frozen: true },
-    { name: 'Quiz 1', total: 20, subject: 'Data Structures', frozen: true },
-    { name: 'Quiz 2', total: 20, subject: 'Data Structures', frozen: false },
-    { name: 'Assignment 1', total: 50, subject: 'Web Development', frozen: false },
-  ];
-
-  students.forEach(student => {
-    assessments.forEach(assessment => {
-      const markValue = assessment.frozen
-        ? Math.floor(Math.random() * 40) + 50
-        : Math.random() < 0.3 ? null : Math.floor(Math.random() * 40) + 50;
-
-      marks.push({
-        id: id++,
-        studentId: student.id,
-        assessment: assessment.name,
-        marks: markValue,
-        totalMarks: assessment.total,
-        branch: student.branch,
-        section: student.section,
-        subject: assessment.subject,
-        isFrozen: assessment.frozen,
-      });
-    });
-  });
-
-  return marks;
 }

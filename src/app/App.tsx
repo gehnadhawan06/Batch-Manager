@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useAppContext, Student, Teacher } from './context/AppContext';
 import { AuthPage } from './components/AuthPage';
 import { TeacherDashboard } from './components/TeacherDashboard';
@@ -6,6 +6,7 @@ import { StudentDashboard } from './components/StudentDashboard';
 import { logout, me, refreshAccessToken } from './api/auth';
 
 function AppContent() {
+  const { fetchUsers } = useAppContext();
   const [currentUser, setCurrentUser] = useState<(Student | Teacher) & { role: 'student' | 'teacher' } | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
 
@@ -43,6 +44,7 @@ function AppContent() {
             role: 'student',
           });
         }
+        await fetchUsers();
       } catch {
         setCurrentUser(null);
       } finally {
@@ -51,10 +53,11 @@ function AppContent() {
     };
 
     void restoreSession();
-  }, []);
+  }, [fetchUsers]);
 
   const handleLogin = (role: 'teacher' | 'student', user: Student | Teacher) => {
     setCurrentUser({ ...user, role });
+    void fetchUsers();
   };
 
   const handleLogout = async () => {
@@ -95,9 +98,5 @@ function AppContent() {
 }
 
 export default function App() {
-  return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
-  );
+  return <AppProvider children={<AppContent />} />;
 }

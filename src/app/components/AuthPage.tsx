@@ -48,7 +48,7 @@ export function AuthPage({ onLogin }: AuthPageProps) {
     }
   };
 
-  const handleStudentSignup = (e: React.FormEvent) => {
+  const handleStudentSignup = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!signupName || !rollNumber || !section) {
@@ -58,22 +58,27 @@ export function AuthPage({ onLogin }: AuthPageProps) {
 
     const email = `${rollNumber.toLowerCase()}btit24${section === '2' ? 'sec2' : ''}@igdtuw.ac.in`;
 
-    registerStudent({
-      name: signupName,
-      email,
-      password: signupPassword,
-      rollNumber,
-      branch: 'IT',
-      section,
-      batch: '2024',
-    });
+    try {
+      await registerStudent({
+        name: signupName,
+        email,
+        password: signupPassword,
+        rollNumber,
+        branch: 'IT',
+        section,
+        batch: '2024',
+      });
 
-    setMode('login');
-    setLoginEmail(email);
-    alert(`Account created!\nEmail: ${email}\nPassword: ${signupPassword}\n\nYou can now login.`);
+      setMode('login');
+      setLoginEmail(email);
+      alert(`Account created!\nEmail: ${email}\n\nYou can now login.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create student account';
+      alert(message);
+    }
   };
 
-  const handleTeacherSignup = (e: React.FormEvent) => {
+  const handleTeacherSignup = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!teacherName || !teacherEmail || !teacherPassword || teacherBranches.length === 0) {
@@ -81,17 +86,18 @@ export function AuthPage({ onLogin }: AuthPageProps) {
       return;
     }
 
-    registerTeacher({
-      name: teacherName,
-      email: teacherEmail,
-      password: teacherPassword,
-      branches: teacherBranches,
-      department: 'Information Technology',
-    });
-
-    setMode('login');
-    setLoginEmail(teacherEmail);
-    alert(`Teacher account created!\nEmail: ${teacherEmail}\nYou can now login.`);
+    try {
+      await registerTeacher({
+        name: teacherName,
+        email: teacherEmail,
+        password: teacherPassword,
+        branches: teacherBranches,
+        department: 'Information Technology',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create teacher account';
+      alert(message);
+    }
   };
 
   const toggleBranch = (branch: string) => {
