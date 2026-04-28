@@ -11,6 +11,16 @@ export interface AssignmentDto {
   subject: string;
 }
 
+export interface CreateAssignmentPayload {
+  title: string;
+  description: string;
+  deadline: string;
+  branch: string;
+  section: string;
+  subject: string;
+  maxMarks: number;
+}
+
 export async function getAssignments(params: { branch?: string; section?: string }) {
   const search = new URLSearchParams();
   if (params.branch) search.set("branch", params.branch);
@@ -19,7 +29,7 @@ export async function getAssignments(params: { branch?: string; section?: string
   return apiFetch<AssignmentDto[]>(`/assignments${query ? `?${query}` : ""}`);
 }
 
-export async function createAssignment(payload: Omit<AssignmentDto, "id" | "createdAt">) {
+export async function createAssignment(payload: CreateAssignmentPayload) {
   return apiFetch<AssignmentDto>("/assignments", {
     method: "POST",
     body: JSON.stringify(payload),

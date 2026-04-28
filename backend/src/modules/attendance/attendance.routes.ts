@@ -1,6 +1,7 @@
 import { AttendanceStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { getActorScope, isTeacherOutOfScope, parsePositiveInt } from "../../lib/accessScope";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRoles } from "../../middleware/auth";
 
@@ -16,11 +17,30 @@ const markAttendanceSchema = z.object({
 router.get("/", requireAuth, async (req, res) => {
   const branch = typeof req.query.branch === "string" ? req.query.branch : undefined;
   const section = typeof req.query.section === "string" ? req.query.section : undefined;
-  const studentIdQuery = typeof req.query.studentId === "string" ? Number(req.query.studentId) : undefined;
+  const studentIdQueryRaw = typeof req.query.studentId === "string" ? req.query.studentId : undefined;
+  const studentIdQuery = studentIdQueryRaw ? parsePositiveInt(studentIdQueryRaw) : undefined;
+  if (studentIdQueryRaw && !studentIdQuery) {
+    return res.status(400).json({ message: "Invalid studentId query param" });
+  }
+
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  if (isTeacherOutOfScope(actor, { branch, section })) {
+    return res.status(403).json({ message: "Forbidden outside your assigned batch scope" });
+  }
 
   const where = {
-    ...(branch ? { student: { branch } } : {}),
-    ...(section ? { student: { ...(branch ? { branch } : {}), section } } : {}),
+    ...(branch || section || actor.role === "TEACHER"
+      ? {
+          student: {
+            ...(branch ? { branch } : {}),
+            ...(section ? { section } : {}),
+            ...(actor.role === "TEACHER" ? { branch: actor.branch!, section: actor.section!, batch: actor.batch! } : {}),
+          },
+        }
+      : {}),
     ...(studentIdQuery ? { studentId: studentIdQuery } : {}),
     ...(req.user?.role === "STUDENT" ? { studentId: req.user.userId } : {}),
   };
@@ -55,6 +75,21 @@ router.post("/", requireAuth, requireRoles("STUDENT", "TEACHER", "ADMIN"), async
 
   const targetStudentId = req.user!.role === "STUDENT" ? req.user!.userId : parsed.data.studentId;
   const date = parsed.data.date ? new Date(parsed.data.date) : new Date();
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
+
+  const targetStudent = await prisma.user.findUnique({
+    where: { id: targetStudentId },
+    select: { id: true, role: true, branch: true, section: true, batch: true },
+  });
+  if (!targetStudent || targetStudent.role !== "STUDENT") {
+    return res.status(404).json({ message: "Student not found" });
+  }
+  if (isTeacherOutOfScope(actor, targetStudent)) {
+    return res.status(403).json({ message: "Forbidden outside your assigned batch scope" });
+  }
 
   const existing = await prisma.attendanceRecord.findFirst({
     where: { studentId: targetStudentId, date },
@@ -64,6 +99,15 @@ router.post("/", requireAuth, requireRoles("STUDENT", "TEACHER", "ADMIN"), async
     return res.status(409).json({ message: "Attendance already marked for this day" });
   }
 
+  const proxyConflict = await prisma.attendanceRecord.findFirst({
+    where: {
+      studentId: { not: targetStudentId },
+      date,
+      OR: [{ ipAddress: parsed.data.ipAddress }, { deviceId: parsed.data.deviceId }],
+    },
+    select: { id: true },
+  });
+
   const record = await prisma.attendanceRecord.create({
     data: {
       studentId: targetStudentId,
@@ -71,7 +115,7 @@ router.post("/", requireAuth, requireRoles("STUDENT", "TEACHER", "ADMIN"), async
       status: AttendanceStatus.PENDING,
       ipAddress: parsed.data.ipAddress,
       deviceId: parsed.data.deviceId,
-      proxyFlag: false,
+      proxyFlag: Boolean(proxyConflict),
     },
   });
 
@@ -86,17 +130,71 @@ async function updateStatus(recordId: number, status: AttendanceStatus) {
 }
 
 router.patch("/:id/approve", requireAuth, requireRoles("TEACHER", "ADMIN"), async (req, res) => {
-  const record = await updateStatus(Number(req.params.id), AttendanceStatus.APPROVED);
+  const recordId = parsePositiveInt(req.params.id);
+  if (!recordId) {
+    return res.status(400).json({ message: "Invalid attendance id" });
+  }
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  const existing = await prisma.attendanceRecord.findUnique({
+    where: { id: recordId },
+    include: { student: { select: { branch: true, section: true, batch: true } } },
+  });
+  if (!existing) {
+    return res.status(404).json({ message: "Attendance record not found" });
+  }
+  if (isTeacherOutOfScope(actor, existing.student)) {
+    return res.status(403).json({ message: "Forbidden outside your assigned batch scope" });
+  }
+  const record = await updateStatus(recordId, AttendanceStatus.APPROVED);
   return res.json(record);
 });
 
 router.patch("/:id/deny", requireAuth, requireRoles("TEACHER", "ADMIN"), async (req, res) => {
-  const record = await updateStatus(Number(req.params.id), AttendanceStatus.DENIED);
+  const recordId = parsePositiveInt(req.params.id);
+  if (!recordId) {
+    return res.status(400).json({ message: "Invalid attendance id" });
+  }
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  const existing = await prisma.attendanceRecord.findUnique({
+    where: { id: recordId },
+    include: { student: { select: { branch: true, section: true, batch: true } } },
+  });
+  if (!existing) {
+    return res.status(404).json({ message: "Attendance record not found" });
+  }
+  if (isTeacherOutOfScope(actor, existing.student)) {
+    return res.status(403).json({ message: "Forbidden outside your assigned batch scope" });
+  }
+  const record = await updateStatus(recordId, AttendanceStatus.DENIED);
   return res.json(record);
 });
 
 router.patch("/:id/cancel", requireAuth, requireRoles("TEACHER", "ADMIN"), async (req, res) => {
-  const record = await updateStatus(Number(req.params.id), AttendanceStatus.CANCELLED);
+  const recordId = parsePositiveInt(req.params.id);
+  if (!recordId) {
+    return res.status(400).json({ message: "Invalid attendance id" });
+  }
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  const existing = await prisma.attendanceRecord.findUnique({
+    where: { id: recordId },
+    include: { student: { select: { branch: true, section: true, batch: true } } },
+  });
+  if (!existing) {
+    return res.status(404).json({ message: "Attendance record not found" });
+  }
+  if (isTeacherOutOfScope(actor, existing.student)) {
+    return res.status(403).json({ message: "Forbidden outside your assigned batch scope" });
+  }
+  const record = await updateStatus(recordId, AttendanceStatus.CANCELLED);
   return res.json(record);
 });
 

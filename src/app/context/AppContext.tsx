@@ -7,6 +7,7 @@ import {
   markAttendance as markAttendanceApi,
 } from '../api/attendance';
 import {
+  CreateAssignmentPayload,
   createAssignment as createAssignmentApi,
   getAssignments,
   submitAssignment as submitAssignmentApi,
@@ -119,8 +120,8 @@ interface AppContextType {
   fetchSubmissions: (filters: { assignmentId?: number; studentId?: number }) => Promise<void>;
   fetchMarks: (filters: { branch?: string; section?: string; studentId?: number }) => Promise<void>;
   fetchQueries: (filters: { studentId?: number; markId?: number }) => Promise<void>;
-  createAssignment: (assignment: Omit<Assignment, 'id' | 'createdAt'>) => Promise<void>;
-  submitAssignment: (assignmentId: number, studentId: number, fileName: string) => Promise<void>;
+  createAssignment: (assignment: CreateAssignmentPayload) => Promise<void>;
+  submitAssignment: (assignmentId: number, studentId: number, fileUrl: string) => Promise<void>;
   markAsSubmittedManual: (assignmentId: number, studentId: number) => Promise<void>;
   updateMark: (markId: number, marks: number | null) => Promise<void>;
   freezeAssessment: (assessment: string, branch: string, section: string) => Promise<void>;
@@ -216,8 +217,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         section: user.section ?? '1',
         batch: user.batch ?? '2024',
       };
-    } catch {
-      return null;
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Student login failed');
     }
   };
 
@@ -237,8 +238,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         branches: [branchLabel],
         department: 'Information Technology',
       };
-    } catch {
-      return null;
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Teacher login failed');
     }
   };
 
@@ -313,30 +314,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const createAssignment = async (assignment: Omit<Assignment, 'id' | 'createdAt'>) => {
+  const createAssignment = async (assignment: CreateAssignmentPayload) => {
     try {
       const created = await createAssignmentApi(assignment);
       setAssignments(prev => [created, ...prev.filter(a => a.id !== created.id)]);
       await fetchSubmissions({});
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create assignment';
-      alert(message);
+      throw new Error(message);
     }
   };
 
-  const submitAssignment = async (assignmentId: number, studentId: number, fileName: string) => {
+  const submitAssignment = async (assignmentId: number, studentId: number, fileUrl: string) => {
     try {
       const assignment = assignments.find(a => a.id === assignmentId);
       if (assignment && new Date() > new Date(assignment.deadline)) {
-        alert('Cannot submit after deadline!');
-        return;
+        throw new Error('Cannot submit after deadline');
       }
 
-      await submitAssignmentApi(assignmentId, { studentId, fileUrl: fileName });
+      await submitAssignmentApi(assignmentId, { studentId, fileUrl });
       await fetchSubmissions({ studentId });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to submit assignment';
-      alert(message);
+      throw new Error(message);
     }
   };
 

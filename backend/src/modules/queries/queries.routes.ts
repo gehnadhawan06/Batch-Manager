@@ -1,17 +1,28 @@
 import { QueryStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { getActorScope, isTeacherOutOfScope, parsePositiveInt } from "../../lib/accessScope";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRoles } from "../../middleware/auth";
 
 const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
-  const studentIdQuery = typeof req.query.studentId === "string" ? Number(req.query.studentId) : undefined;
-  const markIdQuery = typeof req.query.markId === "string" ? Number(req.query.markId) : undefined;
+  const studentIdQueryRaw = typeof req.query.studentId === "string" ? req.query.studentId : undefined;
+  const markIdQueryRaw = typeof req.query.markId === "string" ? req.query.markId : undefined;
+  const studentIdQuery = studentIdQueryRaw ? parsePositiveInt(studentIdQueryRaw) : undefined;
+  const markIdQuery = markIdQueryRaw ? parsePositiveInt(markIdQueryRaw) : undefined;
+  if ((studentIdQueryRaw && !studentIdQuery) || (markIdQueryRaw && !markIdQuery)) {
+    return res.status(400).json({ message: "Invalid query param ids" });
+  }
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
 
   const queries = await prisma.query.findMany({
     where: {
+      ...(actor.role === "TEACHER" ? { mark: { branch: actor.branch!, section: actor.section! } } : {}),
       ...(studentIdQuery ? { studentId: studentIdQuery } : {}),
       ...(markIdQuery ? { markId: markIdQuery } : {}),
       ...(req.user?.role === "STUDENT" ? { studentId: req.user.userId } : {}),
@@ -46,6 +57,17 @@ router.post("/", requireAuth, requireRoles("STUDENT", "ADMIN"), async (req, res)
     return res.status(400).json({ message: "studentId is required for admin query creation" });
   }
 
+  const mark = await prisma.mark.findUnique({
+    where: { id: parsed.data.markId },
+    select: { id: true, studentId: true },
+  });
+  if (!mark) {
+    return res.status(404).json({ message: "Mark not found" });
+  }
+  if (mark.studentId !== studentId) {
+    return res.status(403).json({ message: "You can only raise query for your own mark" });
+  }
+
   const created = await prisma.query.create({
     data: {
       studentId,
@@ -73,7 +95,25 @@ router.patch("/:id/respond", requireAuth, requireRoles("TEACHER", "ADMIN"), asyn
     return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
   }
 
-  const queryId = Number(req.params.id);
+  const queryId = parsePositiveInt(req.params.id);
+  if (!queryId) {
+    return res.status(400).json({ message: "Invalid query id" });
+  }
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  const existing = await prisma.query.findUnique({
+    where: { id: queryId },
+    include: { mark: { select: { branch: true, section: true } } },
+  });
+  if (!existing) {
+    return res.status(404).json({ message: "Query not found" });
+  }
+  if (isTeacherOutOfScope(actor, existing.mark)) {
+    return res.status(403).json({ message: "Forbidden outside your assigned batch scope" });
+  }
+
   const updated = await prisma.query.update({
     where: { id: queryId },
     data: {

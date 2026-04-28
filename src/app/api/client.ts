@@ -24,8 +24,26 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   });
 
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(errorBody?.message || `Request failed: ${response.status}`);
+    const errorBody = (await response.json().catch(() => null)) as
+      | {
+          message?: string;
+          errors?: {
+            fieldErrors?: Record<string, string[] | undefined>;
+            formErrors?: string[];
+          };
+        }
+      | null;
+
+    const fieldErrors = errorBody?.errors?.fieldErrors
+      ? Object.entries(errorBody.errors.fieldErrors)
+          .flatMap(([field, messages]) => (messages ?? []).map((message) => `${field}: ${message}`))
+          .join(", ")
+      : "";
+    const formErrors = errorBody?.errors?.formErrors?.join(", ") ?? "";
+    const details = [fieldErrors, formErrors].filter(Boolean).join(", ");
+    const message = errorBody?.message || `Request failed: ${response.status}`;
+
+    throw new Error(details ? `${message} (${details})` : message);
   }
 
   if (response.status === 204) {

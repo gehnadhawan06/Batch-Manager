@@ -10,7 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "test": "echo \"No tests configured yet\""
+    "test": "tsx --test src/**/*.test.ts"
   },
   "keywords": [],
   "author": "",

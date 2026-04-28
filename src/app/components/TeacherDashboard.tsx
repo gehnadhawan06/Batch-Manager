@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CheckCircle, FileText, Award, MessageSquare, LogOut, Filter } from 'lucide-react';
 import { AttendanceApproval } from './teacher/AttendanceApproval';
 import { AssignmentManager } from './teacher/AssignmentManager';
 import { MarksEntry } from './teacher/MarksEntry';
 import { QueryInbox } from './teacher/QueryInbox';
+import { useAppContext } from '../context/AppContext';
 
 interface TeacherDashboardProps {
   teacherId: number;
@@ -13,8 +14,13 @@ interface TeacherDashboardProps {
 }
 
 export function TeacherDashboard({ teacherId, userName, branches, onLogout }: TeacherDashboardProps) {
+  const { fetchUsers } = useAppContext();
   const [activeTab, setActiveTab] = useState<'attendance' | 'assignments' | 'marks' | 'queries'>('attendance');
   const [selectedBranch, setSelectedBranch] = useState(branches[0]);
+
+  useEffect(() => {
+    void fetchUsers();
+  }, [fetchUsers]);
 
   const tabs = [
     { id: 'attendance' as const, label: 'Attendance', icon: CheckCircle },

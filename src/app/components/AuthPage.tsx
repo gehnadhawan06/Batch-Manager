@@ -15,6 +15,7 @@ export function AuthPage({ onLogin }: AuthPageProps) {
   // Login state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   // Student signup state
   const [signupName, setSignupName] = useState('');
@@ -30,21 +31,27 @@ export function AuthPage({ onLogin }: AuthPageProps) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError(null);
 
-    if (role === 'teacher') {
-      const teacher = await loginTeacher(loginEmail, loginPassword);
-      if (teacher) {
-        onLogin('teacher', teacher);
+    try {
+      if (role === 'teacher') {
+        const teacher = await loginTeacher(loginEmail, loginPassword);
+        if (teacher) {
+          onLogin('teacher', teacher);
+        } else {
+          setLoginError('Invalid teacher credentials');
+        }
       } else {
-        alert('Invalid teacher credentials');
+        const student = await loginStudent(loginEmail, loginPassword);
+        if (student) {
+          onLogin('student', student);
+        } else {
+          setLoginError('Invalid student credentials');
+        }
       }
-    } else {
-      const student = await loginStudent(loginEmail, loginPassword);
-      if (student) {
-        onLogin('student', student);
-      } else {
-        alert('Invalid student credentials');
-      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      setLoginError(message);
     }
   };
 
@@ -238,6 +245,7 @@ export function AuthPage({ onLogin }: AuthPageProps) {
               >
                 Sign In
               </button>
+              {loginError && <p className="text-sm text-red-600 font-medium text-center">{loginError}</p>}
 
               <p className="text-xs text-gray-500 text-center mt-4">
                 Demo: {role === 'student' ? '001btit24@igdtuw.ac.in' : 'praveen@igdtuw.ac.in'} / {role === 'student' ? 'student123' : 'teacher123'}
